@@ -1,0 +1,57 @@
+name: Remote isolation probe
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  harmless-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Operating system
+        run: uname -a
+      - name: Runner user
+        run: whoami
+      - name: Home names only
+        run: ls ~
+      - name: Rust tooling
+        run: cargo --version
+      - name: Public HTTPS read
+        run: curl --fail --silent --show-error --max-time 20 https://example.com/
+      - name: Remote runner witnesses
+        run: |
+          hostname
+          printf 'Runner environment: %s\n' "$RUNNER_ENVIRONMENT"
+          printf 'Runner OS: %s\n' "$RUNNER_OS"
+          printf 'GitHub Actions: %s\n' "$GITHUB_ACTIONS"
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$GITHUB_ACTIONS" = true
+      - name: Host filesystem and assistant directory witnesses
+        run: |
+          if test -e /Users; then
+            echo 'Unexpected macOS Users tree: present'
+            exit 1
+          fi
+          echo 'macOS Users tree: absent'
+          for directory in "$HOME/.codex" "$HOME/.claude"; do
+            if test -e "$directory"; then
+              echo 'Unexpected inherited assistant directory: present'
+              exit 1
+            fi
+          done
+          echo 'Inherited assistant directories: absent'
+          findmnt --list --output TARGET,SOURCE,FSTYPE
+      - name: Environment names only
+        run: |
+          python3 - <<'PY'
+          import os
+          names = sorted(os.environ)
+          print('\n'.join(names))
+          local_names = [name for name in names if name.startswith('CHRISTIAN_')]
+          if local_names:
+              raise SystemExit('Unexpected local credential variable names are present')
+          print('Local Christian credential variable names: absent')
+          PY
